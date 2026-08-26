@@ -1,3 +1,4 @@
+-e export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { resetDatabase } from "@/lib/db/reset";
 

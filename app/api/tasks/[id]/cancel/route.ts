@@ -1,3 +1,4 @@
+-e export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { cancelTask } from "@/lib/manager/orchestrator";
 

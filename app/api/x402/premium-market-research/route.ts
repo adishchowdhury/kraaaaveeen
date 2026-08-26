@@ -1,3 +1,4 @@
+-e export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withX402 } from "@x402/next";
 import { getX402ResourceServer, X402_ALGORAND_NETWORK, getX402PayToAddress } from "@/lib/blockchain/x402Algorand";

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { lockAgentEscrow, releaseAgentEscrow } from "@/lib/economy/escrow";
 import { emitEvent } from "@/lib/events/emit";
 
+export const dynamic = 'force-dynamic';
+
 const triggerSchema = z.object({ taskId: z.string() });
 
 // Scripted, deterministic rogue-agent demo: a real (small, legitimate)
