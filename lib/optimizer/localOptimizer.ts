@@ -1,4 +1,4 @@
-﻿import path from "path";
+import path from "path";
 import fs from "fs";
 import { getLlama, LlamaChatSession, LlamaJsonSchemaGrammar, type Llama, type LlamaModel } from "node-llama-cpp";
 import { PromptOptimizer, PromptOptimizationInput, OptimizedTask, optimizedTaskSchema } from "./types";
@@ -45,9 +45,13 @@ export class LocalPromptOptimizer implements PromptOptimizer {
   private modelPath: string;
 
   constructor() {
-    this.modelPath = process.env.PROMPT_MODEL_PATH || path.join(process.cwd(), "models", "qwen3-0.6b.gguf");
-    if (!path.isAbsolute(this.modelPath)) {
-      this.modelPath = path.join(process.cwd(), this.modelPath);
+    const rawPath = process.env.PROMPT_MODEL_PATH;
+    if (rawPath) {
+      this.modelPath = path.isAbsolute(rawPath)
+        ? rawPath
+        : path.join(/* turbopackIgnore: true */ process.cwd(), rawPath);
+    } else {
+      this.modelPath = path.join(process.cwd(), "models", "qwen3-0.6b.gguf");
     }
   }
 

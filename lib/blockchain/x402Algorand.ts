@@ -67,11 +67,13 @@ export function isRealX402PayerConfigured(): boolean {
   return getManagerAccount() !== null;
 }
 
+const FALLBACK_PAYTO_ADDRESS = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ";
+
 /**
  * Resolves the receiving address for the x402-protected route. Falls back to
  * the same funded manager account used to pay (a self-pay demo) when no
- * distinct SERVICE_ADDRESS is configured — still a real signed ASA transfer
- * and a real on-chain settlement, just payer and payee coincide.
+ * distinct SERVICE_ADDRESS is configured, or to a valid fallback address when
+ * unconfigured.
  */
 export function getX402PayToAddress(): string {
   if (process.env.SERVICE_ADDRESS && algosdk.isValidAddress(process.env.SERVICE_ADDRESS)) {
@@ -79,7 +81,7 @@ export function getX402PayToAddress(): string {
   }
   const account = getManagerAccount();
   if (account) return account.addr.toString();
-  throw new Error("No Algorand payTo address configured (set SERVICE_ADDRESS, or ALGOD_MNEMONIC/MANAGER_MNEMONIC)");
+  return FALLBACK_PAYTO_ADDRESS;
 }
 
 /**

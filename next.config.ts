@@ -1,14 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["node-llama-cpp"],
+  serverExternalPackages: [
+    "node-llama-cpp",
+    "@prisma/client",
+    "@prisma/adapter-pg",
+    "pg",
+  ],
   typescript: { ignoreBuildErrors: true },
-  productionBrowserSourceMaps: false,
-  output: "standalone",
-  experimental: {
-    workerThreads: false,
-    cpus: 1
-  }
 };
 
 export default nextConfig;
