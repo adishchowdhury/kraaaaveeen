@@ -15,13 +15,17 @@ const createTaskSchema = z.object({
 });
 
 export async function GET() {
-  // Chat history — scoped to the demo user until real accounts exist.
-  const tasks = await prisma.task.findMany({
-    where: { userId: DEMO_USER_ID },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-  return NextResponse.json({ tasks });
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { userId: DEMO_USER_ID },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    return NextResponse.json({ tasks });
+  } catch (err: any) {
+    console.warn("[/api/tasks GET] Database unavailable:", err.message);
+    return NextResponse.json({ tasks: [] });
+  }
 }
 
 export async function POST(request: Request) {
@@ -33,36 +37,43 @@ export async function POST(request: Request) {
 
   const { prompt, budget, qualityThreshold, deadline, optimizationMode } = parsed.data;
 
-  // Guards against a freshly-migrated DB that hasn't run the seed script yet.
-  await ensureDemoUser();
+  try {
+    // Guards against a freshly-migrated DB that hasn't run the seed script yet.
+    await ensureDemoUser();
 
-  const task = await prisma.task.create({
-    data: {
-      prompt,
-      budget,
-      remainingBudget: budget,
-      qualityThreshold: qualityThreshold ?? 70,
-      deadline: deadline ? new Date(deadline) : null,
-      status: "CREATED",
-      userId: DEMO_USER_ID,
-      optimizationMode: optimizationMode ?? "A",
-    },
-  });
+    const task = await prisma.task.create({
+      data: {
+        prompt,
+        budget,
+        remainingBudget: budget,
+        qualityThreshold: qualityThreshold ?? 70,
+        deadline: deadline ? new Date(deadline) : null,
+        status: "CREATED",
+        userId: DEMO_USER_ID,
+        optimizationMode: optimizationMode ?? "A",
+      },
+    });
 
-  await emitEvent(prisma, { taskId: task.id, actor: "system", eventType: "TASK_CREATED", payload: { prompt, budget } });
+    await emitEvent(prisma, { taskId: task.id, actor: "system", eventType: "TASK_CREATED", payload: { prompt, budget } });
 
-  // Fire-and-forget: the orchestrator drives state via the Event/SSE stream.
-  // Errors are caught so an unexpected exception doesn't crash the process.
-  runTask(task.id).catch(async (err) => {
-    console.error("Orchestrator error for task", task.id, err);
-    const reason = err instanceof Error ? `internal orchestrator error: ${err.message}` : "internal orchestrator error";
-    await prisma.task
-      .update({
-        where: { id: task.id },
-        data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: reason }) },
-      })
-      .catch(() => {});
-  });
+    // Fire-and-forget: the orchestrator drives state via the Event/SSE stream.
+    runTask(task.id).catch(async (err) => {
+      console.error("Orchestrator error for task", task.id, err);
+      const reason = err instanceof Error ? `internal orchestrator error: ${err.message}` : "internal orchestrator error";
+      await prisma.task
+        .update({
+          where: { id: task.id },
+          data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: reason }) },
+        })
+        .catch(() => {});
+    });
 
-  return NextResponse.json({ task }, { status: 201 });
+    return NextResponse.json({ task }, { status: 201 });
+  } catch (err: any) {
+    console.error("[/api/tasks POST] Database operation failed:", err.message);
+    return NextResponse.json(
+      { error: `Database connection error: ${err.message}. Please check your PostgreSQL server.` },
+      { status: 503 },
+    );
+  }
 }
