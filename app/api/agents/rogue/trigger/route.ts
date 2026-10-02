@@ -17,72 +17,77 @@ export async function POST(request: Request) {
   const parsed = triggerSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const task = await prisma.task.findUnique({ where: { id: parsed.data.taskId } });
-  if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
-  // Allowed even after COMPLETED — per the demo script, the rogue trigger is
-  // fired immediately after the happy path finishes. Only excluded once the
-  // task's budget itself has been closed out (cancelled/failed).
-  if (!["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA", "COMPLETED"].includes(task.status)) {
-    return NextResponse.json({ error: `task is ${task.status}, cannot run demo` }, { status: 409 });
-  }
-  if (task.remainingBudget < 1) {
-    return NextResponse.json({ error: "task has no remaining budget to demonstrate against" }, { status: 409 });
-  }
+  try {
+    const task = await prisma.task.findUnique({ where: { id: parsed.data.taskId } });
+    if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
+    // Allowed even after COMPLETED — per the demo script, the rogue trigger is
+    // fired immediately after the happy path finishes. Only excluded once the
+    // task's budget itself has been closed out (cancelled/failed).
+    if (!["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA", "COMPLETED"].includes(task.status)) {
+      return NextResponse.json({ error: `task is ${task.status}, cannot run demo` }, { status: 409 });
+    }
+    if (task.remainingBudget < 1) {
+      return NextResponse.json({ error: "task has no remaining budget to demonstrate against" }, { status: 409 });
+    }
 
-  const authorizedAmount = Math.min(8, task.remainingBudget);
+    const authorizedAmount = Math.min(8, task.remainingBudget);
 
-  const subtask = await prisma.subtask.create({
-    data: {
+    const subtask = await prisma.subtask.create({
+      data: {
+        taskId: task.id,
+        type: "rogue_demo",
+        requiredCapability: "unbounded_payment_request",
+        assignedAgentId: "rogue-agent",
+        status: "ASSIGNED",
+      },
+    });
+
+    const lock = await lockAgentEscrow({
       taskId: task.id,
-      type: "rogue_demo",
-      requiredCapability: "unbounded_payment_request",
-      assignedAgentId: "rogue-agent",
-      status: "ASSIGNED",
-    },
-  });
+      subtaskId: subtask.id,
+      agentId: "rogue-agent",
+      amount: authorizedAmount,
+      purpose: "market_research",
+    });
 
-  const lock = await lockAgentEscrow({
-    taskId: task.id,
-    subtaskId: subtask.id,
-    agentId: "rogue-agent",
-    amount: authorizedAmount,
-    purpose: "market_research",
-  });
+    if (lock.blocked) {
+      await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+      return NextResponse.json({
+        ok: true,
+        stage: "lock_blocked",
+        authorizedAmount,
+        requestedAmount: authorizedAmount,
+        blocked: true,
+        reason: lock.reason,
+      });
+    }
 
-  if (lock.blocked) {
+    await emitEvent(prisma, {
+      taskId: task.id,
+      actor: "rogue-agent",
+      eventType: "WORK_STARTED",
+      payload: { subtaskId: subtask.id, note: "rogue agent authorized for a small legitimate amount" },
+    });
+
+    const rogueAmount = 10_000;
+    const release = await releaseAgentEscrow({
+      agentEscrowId: lock.agentEscrow.id,
+      requestedAmount: rogueAmount,
+      purpose: "unbounded_payment_request",
+    });
+
     await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+
     return NextResponse.json({
       ok: true,
-      stage: "lock_blocked",
+      stage: "payout_request",
       authorizedAmount,
-      requestedAmount: authorizedAmount,
-      blocked: true,
-      reason: lock.reason,
+      requestedAmount: rogueAmount,
+      blocked: release.blocked,
+      reason: release.blocked ? release.reason : null,
     });
+  } catch (err: any) {
+    console.error("[/api/agents/rogue/trigger] Database operation failed:", err.message);
+    return NextResponse.json({ error: `Database error: ${err.message}` }, { status: 500 });
   }
-
-  await emitEvent(prisma, {
-    taskId: task.id,
-    actor: "rogue-agent",
-    eventType: "WORK_STARTED",
-    payload: { subtaskId: subtask.id, note: "rogue agent authorized for a small legitimate amount" },
-  });
-
-  const rogueAmount = 10_000;
-  const release = await releaseAgentEscrow({
-    agentEscrowId: lock.agentEscrow.id,
-    requestedAmount: rogueAmount,
-    purpose: "unbounded_payment_request",
-  });
-
-  await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-
-  return NextResponse.json({
-    ok: true,
-    stage: "payout_request",
-    authorizedAmount,
-    requestedAmount: rogueAmount,
-    blocked: release.blocked,
-    reason: release.blocked ? release.reason : null,
-  });
 }

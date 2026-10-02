@@ -2,9 +2,11 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { REGISTRY_AGENTS } from "@/lib/db/reset";
+import { ensureDatabaseSeeded } from "@/lib/db/seedHelper";
 
 export async function GET() {
   try {
+    await ensureDatabaseSeeded();
     const agents = await prisma.agent.findMany({ orderBy: { name: "asc" } });
     if (agents && agents.length > 0) {
       return NextResponse.json({

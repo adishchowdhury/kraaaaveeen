@@ -1,15 +1,17 @@
 import path from "path";
 import fs from "fs";
-import { getLlama, LlamaChatSession, LlamaJsonSchemaGrammar, type Llama, type LlamaModel } from "node-llama-cpp";
 import { PromptOptimizer, PromptOptimizationInput, OptimizedTask, optimizedTaskSchema } from "./types";
 
-// Loading the gguf model from disk and initializing llama.cpp takes several
-// seconds on its own. Doing that on every request (as before) meant every
-// optimize() call paid the full cold-start cost. Cache the loaded llama
-// instance/model at module scope so it is paid once per server process and
-// reused across requests; only the (cheap) context+session are per-call.
-let llamaPromise: Promise<Llama> | null = null;
-let modelPromise: Promise<LlamaModel> | null = null;
+let llamaPromise: Promise<any> | null = null;
+let modelPromise: Promise<any> | null = null;
+let nodeLlamaCppModule: any = null;
+
+async function getNodeLlamaCpp() {
+  if (!nodeLlamaCppModule) {
+    nodeLlamaCppModule = await import("node-llama-cpp");
+  }
+  return nodeLlamaCppModule;
+}
 
 // Placeholder strings the model sometimes echoes back verbatim instead of
 // actually filling in a real objective derived from the user's prompt.
@@ -55,16 +57,17 @@ export class LocalPromptOptimizer implements PromptOptimizer {
     }
   }
 
-  private async getModel(): Promise<LlamaModel> {
+  private async getModel(): Promise<any> {
     if (!fs.existsSync(this.modelPath)) {
       throw new Error(`Model file not found at: ${this.modelPath}`);
     }
+    const { getLlama } = await getNodeLlamaCpp();
     if (!llamaPromise) {
       llamaPromise = getLlama();
     }
     if (!modelPromise) {
       const modelPath = this.modelPath;
-      modelPromise = llamaPromise.then(llama => llama.loadModel({ modelPath }));
+      modelPromise = llamaPromise.then((llama: any) => llama.loadModel({ modelPath }));
       modelPromise.catch(() => {
         // Allow a retry on the next call instead of caching a permanent failure.
         modelPromise = null;
@@ -163,6 +166,7 @@ User request: "find out why our checkout API keeps timing out"
       ]
     };
 
+    const { LlamaChatSession, LlamaJsonSchemaGrammar } = await getNodeLlamaCpp();
     const llama = await llamaPromise!;
     const context = await model.createContext({ contextSize: 1024 }); // Limit context size appropriately
     const jsonGrammar = new LlamaJsonSchemaGrammar(llama, responseSchema as any);

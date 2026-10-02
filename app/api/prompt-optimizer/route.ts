@@ -14,8 +14,9 @@ export async function POST(request: Request) {
     const optimized = await router.optimize({ prompt: body.prompt });
     const latency = Date.now() - start;
 
-    const modelName = process.env.PROMPT_MODEL_ENABLED === "false" ? "gemini" : "qwen2.5-0.5b-instruct";
-    const provider = process.env.PROMPT_MODEL_ENABLED === "false" ? "gemini" : "local";
+    const isLocalEnabled = process.env.PROMPT_MODEL_ENABLED === "true";
+    const modelName = isLocalEnabled ? "qwen2.5-0.5b-instruct" : "gemini";
+    const provider = isLocalEnabled ? "local" : "gemini";
 
     return NextResponse.json({
       optimizedTask: optimized,

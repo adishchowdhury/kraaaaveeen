@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { PromptOptimizer, PromptOptimizationInput, OptimizedTask } from "./types";
-import { LocalPromptOptimizer } from "./localOptimizer";
 import { GeminiPromptOptimizer } from "./geminiOptimizer";
 
 export * from "./types";
@@ -96,22 +95,22 @@ export function needsOptimization(prompt: string): boolean {
 }
 
 export class PromptOptimizationRouter implements PromptOptimizer {
-  private localOptimizer: LocalPromptOptimizer | null = null;
+  private localOptimizer: PromptOptimizer | null = null;
   private geminiOptimizer: GeminiPromptOptimizer;
 
   constructor() {
-    const isEnabled = process.env.PROMPT_MODEL_ENABLED !== "false";
-    if (isEnabled) {
-      this.localOptimizer = new LocalPromptOptimizer();
-    }
     this.geminiOptimizer = new GeminiPromptOptimizer();
   }
 
   async optimize(input: PromptOptimizationInput): Promise<OptimizedTask> {
-    const isEnabled = process.env.PROMPT_MODEL_ENABLED !== "false";
+    const isEnabled = process.env.PROMPT_MODEL_ENABLED === "true";
     
-    if (isEnabled && this.localOptimizer) {
+    if (isEnabled) {
       try {
+        if (!this.localOptimizer) {
+          const { LocalPromptOptimizer } = await import("./localOptimizer");
+          this.localOptimizer = new LocalPromptOptimizer();
+        }
         console.log("[Prompt Router] Running local prompt optimization...");
         return await this.localOptimizer.optimize(input);
       } catch (err: any) {

@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from "next/server";
+export const maxDuration = 60;
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
 import { runTask } from "@/lib/manager/orchestrator";
-import { ensureDemoUser, DEMO_USER_ID } from "@/lib/db/demoUser";
+import { DEMO_USER_ID } from "@/lib/db/demoUser";
+import { ensureDatabaseSeeded } from "@/lib/db/seedHelper";
 
 const createTaskSchema = z.object({
   prompt: z.string().min(3).max(2000),
@@ -16,6 +18,7 @@ const createTaskSchema = z.object({
 
 export async function GET() {
   try {
+    await ensureDatabaseSeeded();
     const tasks = await prisma.task.findMany({
       where: { userId: DEMO_USER_ID },
       orderBy: { createdAt: "desc" },
@@ -38,8 +41,8 @@ export async function POST(request: Request) {
   const { prompt, budget, qualityThreshold, deadline, optimizationMode } = parsed.data;
 
   try {
-    // Guards against a freshly-migrated DB that hasn't run the seed script yet.
-    await ensureDemoUser();
+    // Ensures demo user, system wallets, and registry agents are present
+    await ensureDatabaseSeeded();
 
     const task = await prisma.task.create({
       data: {
@@ -56,17 +59,28 @@ export async function POST(request: Request) {
 
     await emitEvent(prisma, { taskId: task.id, actor: "system", eventType: "TASK_CREATED", payload: { prompt, budget } });
 
-    // Fire-and-forget: the orchestrator drives state via the Event/SSE stream.
-    runTask(task.id).catch(async (err) => {
-      console.error("Orchestrator error for task", task.id, err);
-      const reason = err instanceof Error ? `internal orchestrator error: ${err.message}` : "internal orchestrator error";
-      await prisma.task
-        .update({
-          where: { id: task.id },
-          data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: reason }) },
-        })
-        .catch(() => {});
-    });
+    // In serverless (Vercel), using after() keeps the execution context alive
+    // so background execution finishes instead of freezing on return.
+    const executeBackground = async () => {
+      try {
+        await runTask(task.id);
+      } catch (err: any) {
+        console.error("[Tasks Route] Orchestrator error for task", task.id, err);
+        const reason = err instanceof Error ? `internal orchestrator error: ${err.message}` : "internal orchestrator error";
+        await prisma.task
+          .update({
+            where: { id: task.id },
+            data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: reason }) },
+          })
+          .catch(() => {});
+      }
+    };
+
+    if (typeof after === "function") {
+      after(executeBackground);
+    } else {
+      executeBackground();
+    }
 
     return NextResponse.json({ task }, { status: 201 });
   } catch (err: any) {

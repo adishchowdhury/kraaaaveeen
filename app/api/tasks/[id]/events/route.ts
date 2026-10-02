@@ -7,25 +7,30 @@ import { prisma } from "@/lib/prisma";
 // seen during the current browser session.
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const rows = await prisma.event.findMany({
-    where: { taskId: id },
-    orderBy: { createdAt: "asc" },
-  });
-  const events = rows.map((row) => {
-    let payload: unknown = {};
-    try {
-      payload = JSON.parse(row.payload);
-    } catch {
-      // leave as empty object if somehow malformed
-    }
-    return {
-      id: row.id,
-      taskId: row.taskId,
-      actor: row.actor,
-      eventType: row.eventType,
-      payload,
-      createdAt: row.createdAt.toISOString(),
-    };
-  });
-  return NextResponse.json({ events });
+  try {
+    const rows = await prisma.event.findMany({
+      where: { taskId: id },
+      orderBy: { createdAt: "asc" },
+    });
+    const events = rows.map((row) => {
+      let payload: unknown = {};
+      try {
+        payload = JSON.parse(row.payload);
+      } catch {
+        // leave as empty object if somehow malformed
+      }
+      return {
+        id: row.id,
+        taskId: row.taskId,
+        actor: row.actor,
+        eventType: row.eventType,
+        payload,
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+    return NextResponse.json({ events });
+  } catch (err: any) {
+    console.warn(`[/api/tasks/${id}/events] Database unavailable:`, err.message);
+    return NextResponse.json({ events: [] });
+  }
 }
